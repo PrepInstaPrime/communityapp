@@ -45,6 +45,12 @@ const postSchema = new mongoose.Schema({
         type: Number,
         default: 0,
     },
+    /** Users who liked this post (for toggle + isLiked on client). */
+    likedBy: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+    }],
+    /** Denormalized count; source of truth is Comment collection. */
     commentsCount: {
         type: Number,
         default: 0,

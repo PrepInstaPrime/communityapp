@@ -37,6 +37,28 @@ const normalizePagination = ({ page = 1, limit = 20 } = {}) => {
     return { page: safePage, limit: safeLimit, skip: (safePage - 1) * safeLimit }
 }
 
+const validateCommentPayload = (payload = {}) => {
+    const text = normalizeString(payload.text)
+    if (!text) {
+        return { valid: false, message: 'Comment text is required' }
+    }
+    if (text.length > 1000) {
+        return { valid: false, message: 'Comment cannot exceed 1000 characters' }
+    }
+    const rawParent = payload.parentCommentId ?? payload.parentId
+    const parentCommentId = rawParent ? normalizeString(String(rawParent)) : ''
+    if (parentCommentId && !mongoose.Types.ObjectId.isValid(parentCommentId)) {
+        return { valid: false, message: 'Invalid parent comment id' }
+    }
+    return {
+        valid: true,
+        data: {
+            text,
+            parentCommentId: parentCommentId || undefined,
+        },
+    }
+}
+
 const validatePostPayload = (payload = {}) => {
     const content = normalizeString(payload.content)
     const media = normalizeString(payload.media)
@@ -78,6 +100,7 @@ export {
     normalizePagination,
     sanitizeStringArray,
     validateObjectId,
+    validateCommentPayload,
     validatePostPayload,
     validateRequiredFields,
 }

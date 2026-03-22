@@ -6,6 +6,8 @@ const userSchema = new mongoose.Schema({
     phoneNumber: { type: String, required: true },
     profilePicture: { type: String, default: null },
     bio: { type: String, default: null },
+    followers: { type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [] },
+    following: { type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [] },
     address: { 
         street: { type: String, default: null },
         city: { type: String, default: null },

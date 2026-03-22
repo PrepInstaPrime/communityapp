@@ -1,8 +1,21 @@
+import mongoose from 'mongoose'
 import userModel from '../models/userModel.mjs'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from '../../config.mjs'
 import uploadProfile from '../aws/uploadProfile.mjs'
+import { validateObjectId, normalizePagination } from '../utils/validate.mjs'
+
+const idEquals = (a, b) => String(a) === String(b)
+
+const listHasId = (list, id) => Array.isArray(list) && list.some((x) => idEquals(x, id))
+
+const safeUser = (doc) => {
+    if (!doc) return null
+    const o = doc.toObject ? doc.toObject() : doc
+    delete o.password
+    return o
+}
 const createUser = async (req, res) => {
     try {
         const { username, email, password, phoneNumber } = req.body
@@ -51,7 +64,11 @@ const loginUser = async (req, res) => {
         const token = jwt.sign({ id: user._id }, JWT_SECRET)
         res.setHeader('authorization', `Bearer ${token}`)
         // Also include the token in the JSON body so the frontend can read it reliably with CORS.
-        res.status(200).send({ message: 'Login successful', user: {id: user._id, username: user.username} });
+        res.status(200).send({
+            message: 'Login successful',
+            token,
+            user: { id: user._id, username: user.username },
+        })
     } catch (error) {
         return res.status(500).send({ message: 'Internal server error' });
     }
@@ -59,14 +76,28 @@ const loginUser = async (req, res) => {
 
 const getProfile = async (req, res) => {
     try {
-        let userId=req.user.id;
-        const user = await userModel.findById(userId).select('username email phoneNumber profilePicture bio address education dob gender maritalStatus occupation isDeleted isActive isVerified isPremium isAdmin isSuperAdmin isSuperAdmin')
-        if(!user) {
+        const userId = req.user.id
+        const doc = await userModel
+            .findById(userId)
+            .select(
+                'username email phoneNumber profilePicture bio address education dob gender maritalStatus occupation isDeleted isActive isVerified isPremium isAdmin isSuperAdmin followers following'
+            )
+            .lean()
+        if (!doc) {
             return res.status(400).send({ message: 'User not found' })
+        }
+        const followers = doc.followers || []
+        const following = doc.following || []
+        const { followers: _f, following: _fol, ...rest } = doc
+        const user = {
+            ...rest,
+            followersCount: followers.length,
+            followingCount: following.length,
+            followingIds: following.map((id) => String(id)),
         }
         res.status(200).send({ message: 'Profile fetched successfully', user })
     } catch (error) {
-        return res.status(500).send({ message: 'Internal server error' });
+        return res.status(500).send({ message: 'Internal server error' })
     }
 }
 const updateProfile = async (req, res) => {
@@ -144,11 +175,212 @@ const updateProfile = async (req, res) => {
             updatedData.profilePicture = profilePictureUrl
         }
 
-        const updatedUser = await userModel.findByIdAndUpdate(userId, updatedData, { new: true })
-        res.status(200).send({ message: 'Profile updated successfully', updatedUser })
+        const updatedUser = await userModel
+            .findByIdAndUpdate(userId, updatedData, { new: true })
+            .select('-password')
+        res.status(200).send({ message: 'Profile updated successfully', updatedUser: safeUser(updatedUser) })
     } catch (error) {
         return res.status(500).send({ message: 'Internal server error' });
     }
 }
+const followUser = async (req, res) => {
+    try {
+        const userId = req.user.id
+        const { followingUserId } = req.body
+        if (!followingUserId || !validateObjectId(followingUserId)) {
+            return res.status(400).send({ message: 'Valid followingUserId is required' })
+        }
+        if (idEquals(userId, followingUserId)) {
+            return res.status(400).send({ message: 'You cannot follow yourself' })
+        }
 
-export { createUser, loginUser, getProfile, updateProfile };
+        const user = await userModel.findById(userId)
+        if (!user) {
+            return res.status(400).send({ message: 'Current user not found' })
+        }
+        if (listHasId(user.following, followingUserId)) {
+            return res.status(400).send({ message: 'User already followed' })
+        }
+        const followingUser = await userModel.findById(followingUserId)
+        if (!followingUser || followingUser.isDeleted) {
+            return res.status(400).send({ message: 'User not found' })
+        }
+
+        user.following.push(new mongoose.Types.ObjectId(followingUserId))
+        followingUser.followers.push(new mongoose.Types.ObjectId(userId))
+        await user.save()
+        await followingUser.save()
+
+        const me = await userModel.findById(userId).select('-password').lean()
+        const them = await userModel.findById(followingUserId).select('-password').lean()
+
+        return res.status(200).send({
+            message: 'User followed successfully',
+            user: me,
+            followingUser: them,
+            followersCount: them.followers?.length ?? 0,
+            followingCount: me.following?.length ?? 0,
+        })
+    } catch (error) {
+        return res.status(500).send({ message: 'Internal server error' })
+    }
+}
+
+const unfollowUser = async (req, res) => {
+    try {
+        const userId = req.user.id
+        const { followingUserId } = req.body
+        if (!followingUserId || !validateObjectId(followingUserId)) {
+            return res.status(400).send({ message: 'Valid followingUserId is required' })
+        }
+        if (idEquals(userId, followingUserId)) {
+            return res.status(400).send({ message: 'Invalid request' })
+        }
+
+        const user = await userModel.findById(userId)
+        const other = await userModel.findById(followingUserId)
+        if (!user || !other) {
+            return res.status(400).send({ message: 'User not found' })
+        }
+        if (!listHasId(user.following, followingUserId)) {
+            return res.status(400).send({ message: 'You are not following this user' })
+        }
+
+        user.following = user.following.filter((id) => !idEquals(id, followingUserId))
+        other.followers = other.followers.filter((id) => !idEquals(id, userId))
+        await user.save()
+        await other.save()
+
+        const me = await userModel.findById(userId).select('-password').lean()
+        const them = await userModel.findById(followingUserId).select('-password').lean()
+
+        return res.status(200).send({
+            message: 'Unfollowed successfully',
+            user: me,
+            followingUser: them,
+            followersCount: them.followers?.length ?? 0,
+            followingCount: me.following?.length ?? 0,
+        })
+    } catch (error) {
+        return res.status(500).send({ message: 'Internal server error' })
+    }
+}
+
+/**
+ * GET /users/:userId — public card (Instagram-style); extra fields only for own profile via /profile.
+ */
+const getPublicUser = async (req, res) => {
+    try {
+        const { userId } = req.params
+        if (!validateObjectId(userId)) {
+            return res.status(400).send({ message: 'Invalid user id' })
+        }
+        const target = await userModel
+            .findOne({ _id: userId, isDeleted: { $ne: true } })
+            .select('username profilePicture bio occupation followers following')
+            .lean()
+        if (!target) {
+            return res.status(404).send({ message: 'User not found' })
+        }
+
+        const followers = target.followers || []
+        const following = target.following || []
+        let isFollowing = false
+        if (req.user?.id) {
+            const me = await userModel.findById(req.user.id).select('following').lean()
+            isFollowing = listHasId(me?.following, userId)
+        }
+
+        const profile = {
+            _id: target._id,
+            username: target.username,
+            profilePicture: target.profilePicture,
+            bio: target.bio,
+            occupation: target.occupation,
+            followersCount: followers.length,
+            followingCount: following.length,
+            isFollowing,
+        }
+        return res.status(200).send({ message: 'User profile', profile })
+    } catch (error) {
+        return res.status(500).send({ message: 'Internal server error' })
+    }
+}
+
+const orderedUsersByIds = async (ids) => {
+    if (!ids.length) return []
+    const users = await userModel
+        .find({ _id: { $in: ids }, isDeleted: { $ne: true } })
+        .select('username profilePicture')
+        .lean()
+    const map = new Map(users.map((u) => [String(u._id), u]))
+    return ids.map((id) => map.get(String(id))).filter(Boolean)
+}
+
+const getUserFollowers = async (req, res) => {
+    try {
+        const { userId } = req.params
+        if (!validateObjectId(userId)) {
+            return res.status(400).send({ message: 'Invalid user id' })
+        }
+        const target = await userModel.findById(userId).select('followers').lean()
+        if (!target) {
+            return res.status(404).send({ message: 'User not found' })
+        }
+        const { page, limit, skip } = normalizePagination(req.query)
+        const raw = target.followers || []
+        const total = raw.length
+        const newestFirst = [...raw].reverse()
+        const pageIds = newestFirst.slice(skip, skip + limit)
+        const users = await orderedUsersByIds(pageIds)
+        return res.status(200).send({
+            message: 'Followers',
+            page,
+            limit,
+            total,
+            users,
+        })
+    } catch (error) {
+        return res.status(500).send({ message: 'Internal server error' })
+    }
+}
+
+const getUserFollowing = async (req, res) => {
+    try {
+        const { userId } = req.params
+        if (!validateObjectId(userId)) {
+            return res.status(400).send({ message: 'Invalid user id' })
+        }
+        const target = await userModel.findById(userId).select('following').lean()
+        if (!target) {
+            return res.status(404).send({ message: 'User not found' })
+        }
+        const { page, limit, skip } = normalizePagination(req.query)
+        const raw = target.following || []
+        const total = raw.length
+        const newestFirst = [...raw].reverse()
+        const pageIds = newestFirst.slice(skip, skip + limit)
+        const users = await orderedUsersByIds(pageIds)
+        return res.status(200).send({
+            message: 'Following',
+            page,
+            limit,
+            total,
+            users,
+        })
+    } catch (error) {
+        return res.status(500).send({ message: 'Internal server error' })
+    }
+}
+
+export {
+    createUser,
+    loginUser,
+    getProfile,
+    updateProfile,
+    followUser,
+    unfollowUser,
+    getPublicUser,
+    getUserFollowers,
+    getUserFollowing,
+}

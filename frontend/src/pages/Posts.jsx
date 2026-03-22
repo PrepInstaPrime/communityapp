@@ -4,6 +4,7 @@ import styles from './Posts.module.css'
 import HeaderNav from '../components/navs/HeaderNav'
 import { useNavigate } from 'react-router-dom'
 import { serverUrl } from '../../config.mjs'
+import PostButtons from '../components/postButtons/PostButtons'
 
 export default function Posts() {
   const navigate = useNavigate()
@@ -16,6 +17,7 @@ export default function Posts() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
+  const [deletingPostId, setDeletingPostId] = useState(null)
   const composerRef = useRef(null)
 
   useEffect(() => {
@@ -25,12 +27,14 @@ export default function Posts() {
     }
     const fetchPosts = async () => {
       setLoading(true)
+      let userId = localStorage.getItem('userId');
       try {
-        const res = await axios.get(`${serverUrl}/posts`, {
+        const res = await axios.get(`${serverUrl}/posts/${userId}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         const backendPosts = (res.data?.posts || []).map((post) => ({
           id: post._id,
+          authorId: post.userId?._id ?? post.userId,
           author: post.userId?.username || 'Unknown',
           createdAt: post.createdAt,
           text: post.content || '',
@@ -38,6 +42,9 @@ export default function Posts() {
           mediaName: '',
           mediaPreview: post.media || '',
           likes: post.likes || 0,
+          likedBy: post.likedBy || [],
+          commentsCount: post.commentsCount || 0,
+          sharesCount: post.sharesCount || 0,
           isLiked: false,
         }))
         setPosts(backendPosts)
@@ -93,6 +100,7 @@ export default function Posts() {
       if (created) {
         const nextPost = {
           id: created._id,
+          authorId: created.userId?._id ?? created.userId ?? localStorage.getItem('userId'),
           author: localStorage.getItem('username') || 'You',
           createdAt: created.createdAt || new Date().toISOString(),
           text: created.content || '',
@@ -100,6 +108,9 @@ export default function Posts() {
           mediaName: '',
           mediaPreview: created.media || '',
           likes: created.likes || 0,
+          likedBy: created.likedBy || [],
+          commentsCount: created.commentsCount || 0,
+          sharesCount: created.sharesCount || 0,
           isLiked: false,
         }
         setPosts((prev) => [nextPost, ...prev])
@@ -184,22 +195,39 @@ export default function Posts() {
     })
   }
 
-  const toggleLike = (postId) => {
+  const handlePostUpdatedFromButtons = (updated) => {
+    if (!updated?._id) return
     setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id !== postId) return post
-        const nextLiked = !post.isLiked
-        return {
-          ...post,
-          isLiked: nextLiked,
-          likes: nextLiked ? post.likes + 1 : Math.max(0, post.likes - 1),
-        }
-      })
+      prev.map((post) =>
+        String(post.id) === String(updated._id)
+          ? {
+              ...post,
+              likes: updated.likes,
+              likedBy: updated.likedBy || [],
+              commentsCount: updated.commentsCount,
+              sharesCount: updated.sharesCount,
+            }
+          : post
+      )
     )
   }
 
-  const deletePost = (postId) => {
-    setPosts((prev) => prev.filter((post) => post.id !== postId))
+  const deletePost = async (postId) => {
+    if (!postId || !token) return
+    if (!window.confirm('Delete this post permanently? This cannot be undone.')) return
+    setError('')
+    setDeletingPostId(postId)
+    try {
+      await axios.delete(`${serverUrl}/posts/${postId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setPosts((prev) => prev.filter((post) => String(post.id) !== String(postId)))
+    } catch (err) {
+      if (err?.response?.status === 401) navigate('/login', { replace: true })
+      setError(err?.response?.data?.message || 'Failed to delete post.')
+    } finally {
+      setDeletingPostId(null)
+    }
   }
 
   const formatDate = (isoString) => {
@@ -304,16 +332,23 @@ export default function Posts() {
                       </div>
                     )}
 
+                    <PostButtons
+                      postId={post.id}
+                      postAuthorId={post.authorId}
+                      likes={post.likes}
+                      commentsCount={post.commentsCount}
+                      sharesCount={post.sharesCount}
+                      likedBy={post.likedBy || []}
+                      onUpdated={handlePostUpdatedFromButtons}
+                    />
                     <div className={styles.postActions}>
                       <button
                         type="button"
-                        className={`${styles.actionBtn} ${post.isLiked ? styles.liked : ''}`}
-                        onClick={() => toggleLike(post.id)}
+                        className={styles.deleteBtn}
+                        onClick={() => deletePost(post.id)}
+                        disabled={deletingPostId === post.id}
                       >
-                        {post.isLiked ? 'Liked' : 'Like'} ({post.likes})
-                      </button>
-                      <button type="button" className={styles.deleteBtn} onClick={() => deletePost(post.id)}>
-                        Delete
+                        {deletingPostId === post.id ? 'Deleting…' : 'Delete'}
                       </button>
                     </div>
                   </article>

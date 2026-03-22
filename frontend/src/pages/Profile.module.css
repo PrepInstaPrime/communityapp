@@ -66,6 +66,89 @@
   font-size: 14px;
 }
 
+.routeHint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.statsRow {
+  display: flex;
+  gap: 24px;
+  padding: 12px 4px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.statBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px 4px;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.statBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.statNumber {
+  font-size: 18px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.statLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: lowercase;
+}
+
+.followBtnPrimary {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  background: #0a66c2;
+  color: #fff;
+}
+
+.followBtnPrimary:hover:not(:disabled) {
+  background: #004182;
+}
+
+.followBtnPrimary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.followingBtn {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.followingBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.followingBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .loading {
   padding: 14px 6px 0;
   color: rgba(255, 255, 255, 0.78);

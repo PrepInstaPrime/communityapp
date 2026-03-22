@@ -154,10 +154,17 @@ Current helpers include:
 - Uses S3 bucket currently hardcoded in helper
 - Requires valid AWS credentials in backend `.env`
 
+## Follow / profile
+
+- `POST /follow` — body `{ followingUserId }` (auth). Fixed ObjectId handling vs strings.
+- `POST /unfollow` — body `{ followingUserId }` (auth).
+- `GET /users/:userId` — public profile: `followersCount`, `followingCount`, `isFollowing` (auth).
+- `GET /users/:userId/followers` and `GET /users/:userId/following` — paginated lists (`page`, `limit`).
+- `GET /profile` — includes `followersCount`, `followingCount`, `followingIds` for the current user.
+- Home feed follow button calls follow/unfollow; profile route `/:userId/:username/profile` loads own vs other user with followers/following modals.
+
 ## Known Improvements / TODO
 
-- Persist follow/unfollow in backend (currently follow button is UI-only on Home feed)
-- Add like/comment/share APIs and persist from frontend
 - Add post delete/update endpoints and ownership checks
 - Add centralized error middleware
 - Add tests and API docs (OpenAPI/Swagger)
